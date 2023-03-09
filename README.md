@@ -16,5 +16,11 @@ https://www.hellofresh.com/recipes/peppercorn-steak-w06-5857fcd16121bb11c124f383
 
 ## Example uses
 Get all recipes from HF `python hf2pdf.py -A`
+
 Get some recipes from HF recipe page `python hf2pdf.py -a`
+
 Get some recipes from HF recipe page and all the listed category pages `python hf2pdf.py -a -r`
+
+Get a single pdf from HF `python hf2pdf -u https://www.hellofresh.com/recipes/peppercorn-steak-w06-5857fcd16121bb11c124f383`
+
+Get all recipes from a category page default listing ~ 15-20 `python hf2pdf -l https://www.hellofresh.com/recipes/american`
