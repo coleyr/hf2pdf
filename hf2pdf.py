@@ -12,7 +12,7 @@ parser = argparse.ArgumentParser(
     prog='Hello Fresh To PDF',
     description="Takes Hello Fresh Recipe URL's and converts them to pdfs",
     epilog='The program relies on a argurment passed in: Try python hf2pdf -u https://www.hellofresh.com/recipes/peppercorn-steak-w06-5857fcd16121bb11c124f383')
-parser.add_argument("-A", "--all", help="Get recipes from hello fresh base recipe page", action='store_true')
+parser.add_argument("-A", "--all", help="Get all recipes from hello fresh", action='store_true')
 parser.add_argument("-a", "--any", help="Get recipes from hello fresh base recipe page", action='store_true')
 parser.add_argument("-r", "--recurse",
                     help="Get recipe list pages from base page and get recipes from those pages", action='store_true')
