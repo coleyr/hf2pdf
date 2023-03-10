@@ -12,12 +12,13 @@ parser = argparse.ArgumentParser(
     prog='Hello Fresh To PDF',
     description="Takes Hello Fresh Recipe URL's and converts them to pdfs",
     epilog='The program relies on a argurment passed in: Try python hf2pdf -u https://www.hellofresh.com/recipes/peppercorn-steak-w06-5857fcd16121bb11c124f383')
-parser.add_argument("-A", "--all", help="Get recipes from hello fresh base recipe page", action='store_true')
+parser.add_argument("-A", "--all", help="Get all recipes from hello fresh, takes 5 ever", action='store_true')
+parser.add_argument("-o", "--organize", help="Save all recipes in sub folders with starting letter", action='store_true', default=True)
 parser.add_argument("-a", "--any", help="Get recipes from hello fresh base recipe page", action='store_true')
 parser.add_argument("-r", "--recurse",
                     help="Get recipe list pages from base page and get recipes from those pages", action='store_true')
 parser.add_argument("-u", "--url", help="A single hello fresh recipe url")
-parser.add_argument("-l", "--list_url", help="A hello fresh list page with recipes")
+parser.add_argument("-l", "--list_url", help="A hello fresh list page url with recipes EX: pasta, american, mexican, keto")
 parser.add_argument("-f", "--file", help="File path to a txt file with a recipe url per line")
 args = parser.parse_args()
 
@@ -80,7 +81,7 @@ class HF2PDF():
         r = requests.get(url, params=params, headers=header)
         print(f"Getting html from page -> link url: {r.url}")
         if r.status_code != 200:
-            print(f"The following url could not be reached: {url}")
+            print(f"The following url could not be reached: {url} \nError Code {r.status_code}")
             return ""
         if html_returned is None:
             return r.text
@@ -178,12 +179,13 @@ class HF2PDF():
             self.recipe_group_pages_checked.add(list_page)
             self.get_many_recipes(list_page)
     
-    def get_all_recipes(self):
+    def get_all_recipes(self, organize):
         print(f"Getting all recipes")
         list_pages = set(self.get_recipe_by_letter('https://www.hellofresh.com/pages/sitemap'))
         top_path = self.download_folder
         for list_page in list_pages - self.recipe_group_pages_checked:
-            self.download_folder = self.make_download_folder(top_path / list_page[-1], update_path=True)
+            if organize:
+                self.download_folder = self.make_download_folder(top_path / list_page[-1], update_path=True)
             self.recipe_group_pages_checked.add(list_page)
             self.get_many_recipes(list_page)
 
@@ -205,5 +207,5 @@ if __name__ == "__main__":
     if args.list_url:
         hf.get_many_recipes(args.list_url, args.recurse)
     if args.all:
-        hf.get_all_recipes()
+        hf.get_all_recipes(args.organize)
     hf.state_path.write_text(json.dumps({'recipe_links': list(hf.recipe_links)}))
