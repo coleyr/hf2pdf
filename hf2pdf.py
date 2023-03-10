@@ -12,14 +12,17 @@ parser = argparse.ArgumentParser(
     prog='Hello Fresh To PDF',
     description="Takes Hello Fresh Recipe URL's and converts them to pdfs",
     epilog='The program relies on a argurment passed in: Try python hf2pdf -u https://www.hellofresh.com/recipes/peppercorn-steak-w06-5857fcd16121bb11c124f383')
-parser.add_argument("-A", "--all", help="Get all recipes from hello fresh, takes 5 ever", action='store_true')
-parser.add_argument("-o", "--organize", help="Save all recipes in sub folders with starting letter", action='store_true', default=True)
+parser.add_argument("-A", "--all", help="Get all recipes from hello fresh, takes 5 ever, will organize by first letter by default", action='store_true')
+parser.add_argument("-do", "--dont_organize", help="Used with A/all param, Don't organize all recipes into sub folders with starting letter (a,b,c...)", action='store_false', default=True)
+parser.add_argument("-o", "--download_folder", help="Download folder location, relative path from script EX: ./pdfs or ./downloads/ketorecipes")
 parser.add_argument("-a", "--any", help="Get recipes from hello fresh base recipe page", action='store_true')
 parser.add_argument("-r", "--recurse",
-                    help="Get recipe list pages from base page and get recipes from those pages", action='store_true')
-parser.add_argument("-u", "--url", help="A single hello fresh recipe url")
-parser.add_argument("-l", "--list_url", help="A hello fresh list page url with recipes EX: pasta, american, mexican, keto")
+                    help="used with all or list flags, Get recipe list pages from base page and get recipes from other list pages on that page", action='store_true')
+parser.add_argument("-u", "--url", help="A single hello fresh recipe url EX: https://www.hellofresh.com/recipes/squash-asparagus-medley-with-lemon-herb-creme-fraiche-63f62d08851013c088050a34")
+parser.add_argument("-l", "--list_url", help="A hello fresh list page url with recipes EX: https://www.hellofresh.com/recipes/chicken-recipes")
 parser.add_argument("-f", "--file", help="File path to a txt file with a recipe url per line")
+# TODO
+# parser.add_argument("-s", "--search", help="Will download pdfs from results of hello fresh search query EX: squash")
 args = parser.parse_args()
 
 
@@ -35,6 +38,11 @@ class HF2PDF():
         self.download_folder = self.make_download_folder(download_folder)
         self.recipe_group_pages_checked = set()
         self.load_state()
+    def __str__(self):
+        return f"{self.__class__.__name__}({self.state_path}, {self.threads}, {self.download_folder})"
+    
+    def __repr__(self):
+        return self.__str__()
 
     @staticmethod
     def make_download_folder(download_folder, update_path=False):
@@ -50,7 +58,7 @@ class HF2PDF():
         return bool(link and len(link) > 5 and link[-4:] == file_type)
 
     def recipe_link_check(self, link):
-        return bool(link and self.recipe_link_regex.search(link))
+        return bool(link and self.recipe_link_regex.search(link) and link not in self.previous_downloaded_url)
 
     def recipe_category_check(self, link):
         return bool(link and self.recipe_group_regex.search(link))
@@ -60,10 +68,10 @@ class HF2PDF():
     
     def load_state(self):
         if not self.state_path.exists():
-            self.recipe_links = set()
+            self.previous_downloaded_url = set()
             return
         text = self.state_path.read_text()
-        self.recipe_links = set(json.loads(text)['recipe_links'])
+        self.previous_downloaded_url = set(json.loads(text)['recipe_links'])
 
     def _get_urls_from_file(self, filepath: str):
         p = Path(filepath)
@@ -126,22 +134,12 @@ class HF2PDF():
             if link_check(link):
                 yield link
 
-    def get_recipe_urls_from_page(self, list_url):
+    def get_links_from_page(self, list_url, check_type):
         html = self._get_html(list_url)
         soup = BeautifulSoup(html, 'html.parser')
-        yield from self._get_links(soup, self.recipe_link_check)
+        yield from self._get_links(soup, check_type)
 
-    def get_recipe_list_pages_from_page(self, list_url):
-        html = self._get_html(list_url)
-        soup = BeautifulSoup(html, 'html.parser')
-        yield from self._get_links(soup, self.recipe_category_check)
-    
-    def get_recipe_by_letter(self, list_url):
-        html = self._get_html(list_url)
-        soup = BeautifulSoup(html, 'html.parser')
-        yield from self._get_links(soup, self.recipe_letter_page)
-        
-    def make_name(self, url):
+    def make_name(self, url:str):
         # Removes Url up to recipe name
         name = url.split("/")[-1]
         # Remove weird numbers
@@ -161,51 +159,61 @@ class HF2PDF():
             next(gen)
         except StopIteration:
             return
-        self.execute_gen_with_no_return(gen)
+        self._execute_gen_with_no_return(gen)
+    def _update_state(self):
+        hf.state_path.write_text(json.dumps({'recipe_links': list(self.previous_downloaded_url)}))
 
-    def get_many_recipes(self, recipe_url: str="https://www.hellofresh.com/recipes", recurse_list_pages=False):
-        print(f"Getting recipes from page {recipe_url}")
-        recipe_links = set(self.get_recipe_urls_from_page(recipe_url)) - self.recipe_links
-        list_pages = set(self.get_recipe_list_pages_from_page(recipe_url))
+    def download_from_links(self, recipe_links):
         recipe_page_html = self.single_function_thread(
-            recipe_links, self._get_html, return_kwarg="html_returned",  funct_kwargs={'params': {}})
+        recipe_links, self._get_html, return_kwarg="html_returned",  funct_kwargs={'params': {}})
         dl_links = set(self._get_download_link(recipe_page_html))
         gen = self.single_function_thread(dl_links, self.download_by_url)
         self._execute_gen_with_no_return(gen)
-        self.recipe_links.update(recipe_links)
+        self.previous_downloaded_url.update(recipe_links)
+        self._update_state()
+
+    def get_recipe_links_from_page(self, recipe_url: str="https://www.hellofresh.com/recipes", recurse_list_pages=False):
+        print(f"Getting recipes from page {recipe_url}")
+        recipe_links = self.get_links_from_page(recipe_url, self.recipe_link_check)
+        list_pages = set(self.get_links_from_page(recipe_url, self.recipe_category_check))
+        for recipe_link_chunks in self.split_list(list(recipe_links), step=self.threads):
+            self.download_from_links(recipe_link_chunks)
         if not recurse_list_pages:
             return
         for list_page in list_pages - self.recipe_group_pages_checked:
             self.recipe_group_pages_checked.add(list_page)
-            self.get_many_recipes(list_page)
-    
+            self.get_recipe_links_from_page(list_page)
+
+    # def get_recipes_from_search(self, search_query:str):
+    #     print(f"Fetching recipes from search {search_query}")
+    #     self.get_recipe_links_from_page(f"https://www.hellofresh.com/recipes/search?q={search_query}")
+
     def get_all_recipes(self, organize):
         print(f"Getting all recipes")
-        list_pages = set(self.get_recipe_by_letter('https://www.hellofresh.com/pages/sitemap'))
+        list_pages = set(self.get_links_from_page('https://www.hellofresh.com/pages/sitemap', self.recipe_letter_page))
         top_path = self.download_folder
         for list_page in list_pages - self.recipe_group_pages_checked:
             if organize:
                 self.download_folder = self.make_download_folder(top_path / list_page[-1], update_path=True)
             self.recipe_group_pages_checked.add(list_page)
-            self.get_many_recipes(list_page)
+            self.get_recipe_links_from_page(list_page)
 
 if __name__ == "__main__":
-    hf = HF2PDF()
+    hf = HF2PDF(download_folder=args.download_folder) if  args.download_folder else HF2PDF()
     if args.any:
-        hf.get_many_recipes()
+        hf.get_recipe_links_from_page()
     urls = []
     if args.file:
-        urls.extend(hf.get_urls_from_file(args.file))
+        urls.extend(hf._get_urls_from_file(args.file))
     if args.url:
         urls.append(args.url)
     if urls:
-        html_list = hf.single_function_thread(
-            urls, hf._get_html, return_kwarg="html_returned",  funct_kwargs={'params': {}})
-        dl_links = set(hf.get_download_link(html_list))
-        gen = hf.single_function_thread(dl_links, hf.download_by_url)
-        hf.execute_gen_with_no_return(gen)
+        hf.download_from_links(urls)
     if args.list_url:
-        hf.get_many_recipes(args.list_url, args.recurse)
+        hf.get_recipe_links_from_page(args.list_url, args.recurse)
     if args.all:
-        hf.get_all_recipes(args.organize)
-    hf.state_path.write_text(json.dumps({'recipe_links': list(hf.recipe_links)}))
+        hf.get_all_recipes(args.dont_organize)
+    #TODO
+    # if args.search:
+    #     hf.get_recipes_from_search(args.search)
+
